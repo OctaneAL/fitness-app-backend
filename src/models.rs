@@ -10,6 +10,27 @@ pub struct User {
     pub password: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ExerciseDetail {
+    pub repeats: String,
+    pub weight: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Exercise {
+    pub name: String,
+    pub sets: i32,
+    pub details: Vec<ExerciseDetail>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Workout {
+    pub workout_id: String,
+    pub name: String,
+    pub date: String,
+    pub exercises: Vec<Exercise>,
+}
+
 // #[derive(Queryable, Serialize, Deserialize)]
 // pub struct WorkoutPlan {
 //     pub id: i32,

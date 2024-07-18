@@ -2,7 +2,8 @@ use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, post, get};
 
 use crate::db;
 use crate::auth;
-use crate::models::{RegisterUser, LoginUser};
+use crate::models::{RegisterUser, LoginUser, Workout};
+use chrono::{NaiveDate, Utc, TimeZone};
 
 // pub fn config(cfg: &mut web::ServiceConfig, pool: &db::DbPool) {
 //     cfg.service(
@@ -12,6 +13,55 @@ use crate::models::{RegisterUser, LoginUser};
 //             .service(web::resource("/protected").route(web::get().to(protected_endpoint))),
 //     );
 // }
+
+#[post("/add_workout")]
+async fn add_workout(pool: web::Data<db::DbPool>, workout: web::Json<Workout>) -> impl Responder {
+    let client = pool.get_ref();
+
+    // Конвертація дати в рядок
+    let parsed_date = NaiveDate::parse_from_str(&workout.date, "%Y-%m-%d")
+        .expect("Error parsing date");
+    let parsed_date_str = parsed_date.format("%Y-%m-%d").to_string();
+
+    // Додавання тренування
+    let workout_stmt = client
+        .prepare("INSERT INTO workout (workout_id, name, date) VALUES ($1, $2, $3) RETURNING id")
+        .await
+        .expect("Error preparing workout statement");
+    let workout_id: i32 = client
+        .query_one(&workout_stmt, &[&workout.workout_id.to_string(), &workout.name, &parsed_date_str])
+        .await
+        .expect("Error executing workout query")
+        .get(0);
+
+    // Додавання вправ
+    for exercise in &workout.exercises {
+        let exercise_stmt = client
+            .prepare("INSERT INTO workout_exercise (workout_id, name, sets_number) VALUES ($1, $2, $3) RETURNING id")
+            .await
+            .expect("Error preparing exercise statement");
+        let exercise_id: i32 = client
+            .query_one(&exercise_stmt, &[&workout_id, &exercise.name, &exercise.sets])
+            .await
+            .expect("Error executing exercise query")
+            .get(0);
+
+        // Додавання деталей вправ
+        for detail in &exercise.details {
+            let detail_stmt = client
+                .prepare("INSERT INTO exercise_set (workout_exercise_id, repeats, weight) VALUES ($1, $2, $3)")
+                .await
+                .expect("Error preparing detail statement");
+            client
+                .execute(&detail_stmt, &[&exercise_id, &detail.repeats, &detail.weight])
+                .await
+                .expect("Error executing detail query");
+        }
+    }
+
+
+    HttpResponse::Ok().json(workout.into_inner())
+}
 
 #[post("/register")]
 async fn register_user(pool: web::Data<db::DbPool>, user: web::Json<RegisterUser>) -> impl Responder {

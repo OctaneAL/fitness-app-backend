@@ -1,4 +1,6 @@
 use actix_web::{web, App, HttpServer};
+use actix_cors::Cors;
+use actix_web::http::header;
 use dotenv::dotenv;
 
 mod models;
@@ -13,15 +15,24 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     let client = db::connect().await.expect("Failed to connect to database");
-
     HttpServer::new(move || {
         App::new()
+            .wrap(
+                Cors::default()
+                .allowed_origin("http://localhost:3000")
+                .allowed_methods(vec!["GET", "POST"])
+                .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
+                .allowed_header(header::CONTENT_TYPE)
+                .supports_credentials()
+                .max_age(3600)
+            )
             .app_data(web::Data::new(client.clone()))
             .service(handlers::register_user)
             .service(handlers::login_user)
             .service(handlers::protected_endpoint)
+            .service(handlers::add_workout)
     })
-    .bind(("127.0.0.1", 8000))?
+    .bind(("0.0.0.0", 8000))?
     .run()
     .await
 }
