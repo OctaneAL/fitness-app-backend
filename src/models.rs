@@ -11,6 +11,12 @@ pub struct User {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ExerciseCatalogItem {
+    pub id: i32,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ExerciseDetail {
     pub repeats: String,
     pub weight: String,
@@ -18,16 +24,17 @@ pub struct ExerciseDetail {
 
 #[derive(Serialize, Deserialize)]
 pub struct Exercise {
-    pub name: String,
-    pub sets: i32,
+    pub exercise_catalog_id: i32,
     pub details: Vec<ExerciseDetail>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Workout {
-    pub workout_id: String,
+    pub id: String,
     pub name: String,
     pub date: String,
+    pub planned_volume: i32,
+    pub duration: String,
     pub exercises: Vec<Exercise>,
 }
 

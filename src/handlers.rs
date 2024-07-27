@@ -1,9 +1,8 @@
-use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, post, get};
+use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, post, get, delete, put};
 
 use crate::db;
 use crate::auth;
-use crate::models::{RegisterUser, LoginUser, Workout};
-use chrono::{NaiveDate, Utc, TimeZone};
+use crate::models::{RegisterUser, LoginUser, Workout, Exercise, ExerciseDetail, ExerciseCatalogItem};
 
 // pub fn config(cfg: &mut web::ServiceConfig, pool: &db::DbPool) {
 //     cfg.service(
@@ -14,58 +13,282 @@ use chrono::{NaiveDate, Utc, TimeZone};
 //     );
 // }
 
-#[post("/add_workout")]
-async fn add_workout(pool: web::Data<db::DbPool>, workout: web::Json<Workout>) -> impl Responder {
-    let client = pool.get_ref();
+#[get("/workouts")]
+async fn get_workouts(pool: web::Data<db::DbPool>) -> impl Responder {
+    let client = pool.lock().await;
+    
+    // Запит для отримання всіх тренувань
+    let workouts_query = "SELECT id, workout_id, name, date, planned_volume_kg, duration_minutes FROM workout ORDER by date;";
+    let workouts = client
+        .query(workouts_query, &[])
+        .await
+        .expect("Error executing workouts query");
 
-    // Конвертація дати в рядок
-    let parsed_date = NaiveDate::parse_from_str(&workout.date, "%Y-%m-%d")
-        .expect("Error parsing date");
-    let parsed_date_str = parsed_date.format("%Y-%m-%d").to_string();
+    let mut workout_list = Vec::new();
 
-    // Додавання тренування
-    let workout_stmt = client
-        .prepare("INSERT INTO workout (workout_id, name, date) VALUES ($1, $2, $3) RETURNING id")
+    for row in workouts {
+        let workout_id: i32 = row.get(0);
+        let mut workout = Workout {
+            id: row.get::<_, String>(1),
+            name: row.get::<_, String>(2),
+            date: row.get::<_, String>(3),
+            planned_volume: row.get::<_, i32>(4),
+            duration: row.get::<_, i32>(5).to_string(),
+            exercises: Vec::new(),
+        };
+
+        // Запит для отримання вправ для кожного тренування
+        let exercises_query = "SELECT id, exercise_catalog_id FROM workout_exercise WHERE workout_id = $1";
+        let exercises = client
+            .query(exercises_query, &[&workout_id])
+            .await
+            .expect("Error executing exercises query");
+
+        for exercise_row in exercises {
+            let exercise_id: i32 = exercise_row.get(0);
+            let mut exercise = Exercise {
+                exercise_catalog_id: exercise_row.get(1),
+                details: Vec::new(),
+            };
+
+            // Запит для отримання деталей вправ для кожної вправи
+            let details_query = "SELECT repeats, weight FROM exercise_set WHERE workout_exercise_id = $1";
+            let details = client
+                .query(details_query, &[&exercise_id])
+                .await
+                .expect("Error executing details query");
+
+            for detail_row in details {
+                let detail = ExerciseDetail {
+                    repeats: detail_row.get::<_, i32>(0).to_string(),
+                    weight: detail_row.get::<_, i32>(1).to_string(),
+                };
+                exercise.details.push(detail);
+            }
+
+            workout.exercises.push(exercise);
+        }
+
+        workout_list.push(workout);
+    }
+
+    HttpResponse::Ok().json(workout_list)
+}
+
+#[get("/exercise_catalog")]
+async fn get_exercise_catalog(pool: web::Data<db::DbPool>) -> impl Responder {
+    let client = pool.lock().await;
+    
+    let exercise_catalog_query = "SELECT id, name FROM exercise_catalog ORDER by name;";
+    let exercise_catalog = client
+        .query(exercise_catalog_query, &[])
+        .await
+        .expect("Error executing workouts query");
+
+        let exercises: Vec<ExerciseCatalogItem> = exercise_catalog
+        .iter()
+        .map(|row| ExerciseCatalogItem {
+            id: row.get("id"),
+            name: row.get("name"),
+        })
+        .collect();
+
+    HttpResponse::Ok().json(exercises)
+}
+
+#[post("/workout/{workout_id}")]
+async fn add_workout(
+    pool: web::Data<db::DbPool>,
+    workout_id: web::Path<String>, 
+    workout: web::Json<Workout>
+) -> impl Responder {
+    // let client = pool.get_ref();
+    let mut client = pool.lock().await;
+    let duration: i32 = workout.duration.parse::<i32>().unwrap();
+
+    let transaction = client
+        .transaction()
+        .await
+        .expect("Failed to start transaction");
+
+    // Add workout
+    let workout_stmt = transaction
+        .prepare("INSERT INTO workout (workout_id, name, date, planned_volume_kg, duration_minutes) VALUES ($1, $2, $3, $4, $5) RETURNING id")
         .await
         .expect("Error preparing workout statement");
-    let workout_id: i32 = client
-        .query_one(&workout_stmt, &[&workout.workout_id.to_string(), &workout.name, &parsed_date_str])
+    let workout_record_id: i32 = transaction
+        .query_one(&workout_stmt, &[&workout_id.as_str(), &workout.name, &workout.date, &workout.planned_volume, &duration])
         .await
         .expect("Error executing workout query")
         .get(0);
 
-    // Додавання вправ
+    // Add exercises
     for exercise in &workout.exercises {
-        let exercise_stmt = client
-            .prepare("INSERT INTO workout_exercise (workout_id, name, sets_number) VALUES ($1, $2, $3) RETURNING id")
+        let exercise_stmt = transaction
+            .prepare("INSERT INTO workout_exercise (workout_id, exercise_catalog_id) VALUES ($1, $2) RETURNING id")
             .await
             .expect("Error preparing exercise statement");
-        let exercise_id: i32 = client
-            .query_one(&exercise_stmt, &[&workout_id, &exercise.name, &exercise.sets])
+        let exercise_id: i32 = transaction
+            .query_one(&exercise_stmt, &[&workout_record_id, &exercise.exercise_catalog_id])
             .await
             .expect("Error executing exercise query")
             .get(0);
 
-        // Додавання деталей вправ
+        // Add exercise details
         for detail in &exercise.details {
-            let detail_stmt = client
+            let repeats: i32 = detail.repeats.parse::<i32>().unwrap();
+            let weight: i32 = detail.weight.parse::<i32>().unwrap();
+            let detail_stmt = transaction
                 .prepare("INSERT INTO exercise_set (workout_exercise_id, repeats, weight) VALUES ($1, $2, $3)")
                 .await
                 .expect("Error preparing detail statement");
-            client
-                .execute(&detail_stmt, &[&exercise_id, &detail.repeats, &detail.weight])
+            transaction
+                .execute(&detail_stmt, &[&exercise_id, &repeats, &weight])
                 .await
                 .expect("Error executing detail query");
         }
     }
 
+    // Commit the transaction
+    transaction
+        .commit()
+        .await
+        .expect("Failed to commit transaction");
 
     HttpResponse::Ok().json(workout.into_inner())
 }
 
+#[put("/workout/{workout_id}")]
+async fn update_workout(
+    pool: web::Data<db::DbPool>, 
+    workout_id: web::Path<String>, 
+    updated_workout: web::Json<Workout>
+) -> impl Responder {
+    let mut client = pool.lock().await;
+
+    // Початок транзакції
+    let transaction = client.transaction().await.expect("Error starting transaction");
+
+    let duration: i32 = updated_workout.duration.parse::<i32>().unwrap();
+
+    // Оновлюємо основну інформацію про тренування
+    let update_workout_stmt = transaction
+        .prepare("UPDATE workout SET name = $1, date = $2, planned_volume_kg = $3, duration_minutes = $4 WHERE workout_id = $5 RETURNING id")
+        .await
+        .expect("Error preparing update workout statement");
+
+    let workout_record_id: i32 = transaction
+        .query_one(
+            &update_workout_stmt, 
+            &[&updated_workout.name, &updated_workout.date, &updated_workout.planned_volume, &duration, &workout_id.as_str()]
+        )
+        .await
+        .expect("Error executing update workout query")
+        .get(0);
+
+    // Видаляємо старі дані про вправи та підходи
+    let delete_sets_stmt = transaction
+        .prepare("DELETE FROM exercise_set WHERE workout_exercise_id IN (SELECT id FROM workout_exercise WHERE workout_id = (SELECT id FROM workout WHERE workout_id = $1))")
+        .await
+        .expect("Error preparing delete sets statement");
+
+    transaction
+        .execute(&delete_sets_stmt, &[&workout_id.as_str()])
+        .await
+        .expect("Error executing delete sets query");
+
+    let delete_exercises_stmt = transaction
+        .prepare("DELETE FROM workout_exercise WHERE workout_id = (SELECT id FROM workout WHERE workout_id = $1)")
+        .await
+        .expect("Error preparing delete exercises statement");
+
+    transaction
+        .execute(&delete_exercises_stmt, &[&workout_id.as_str()])
+        .await
+        .expect("Error executing delete exercises query");
+
+    // Додаємо оновлені дані про вправи та підходи
+    for exercise in &updated_workout.exercises {
+        let exercise_stmt = transaction
+            .prepare("INSERT INTO workout_exercise (workout_id, exercise_catalog_id) VALUES ($1, $2) RETURNING id")
+            .await
+            .expect("Error preparing insert exercise statement");
+
+        let exercise_id: i32 = transaction
+            .query_one(&exercise_stmt, &[&workout_record_id, &exercise.exercise_catalog_id])
+            .await
+            .expect("Error executing insert exercise query")
+            .get(0);
+
+        for detail in &exercise.details {
+            let repeats: i32 = detail.repeats.parse::<i32>().unwrap();
+            let weight: i32 = detail.weight.parse::<i32>().unwrap();
+            let detail_stmt = transaction
+                .prepare("INSERT INTO exercise_set (workout_exercise_id, repeats, weight) VALUES ($1, $2, $3)")
+                .await
+                .expect("Error preparing insert detail statement");
+
+            transaction
+                .execute(&detail_stmt, &[&exercise_id, &repeats, &weight])
+                .await
+                .expect("Error executing insert detail query");
+        }
+    }
+
+    // Підтверджуємо транзакцію
+    transaction.commit().await.expect("Error committing transaction");
+
+    HttpResponse::Ok().json(updated_workout.into_inner())
+}
+
+#[delete("/workout/{workout_id}")]
+async fn delete_workout(
+    pool: web::Data<db::DbPool>, 
+    workout_id: web::Path<String>
+) -> impl Responder {
+    // let client = pool.get_ref();
+    let client = pool.lock().await;
+
+    // Видаляємо підходи, пов'язані з вправами тренування
+    let delete_sets_stmt = client
+        .prepare("DELETE FROM exercise_set WHERE workout_exercise_id IN (SELECT id FROM workout_exercise WHERE workout_id = (SELECT id FROM workout WHERE workout_id = $1))")
+        .await
+        .expect("Error preparing delete sets statement");
+
+    client
+        .execute(&delete_sets_stmt, &[&workout_id.as_str()])
+        .await
+        .expect("Error executing delete sets query");
+
+    // Видаляємо вправи, пов'язані з тренуванням
+    let delete_exercises_stmt = client
+        .prepare("DELETE FROM workout_exercise WHERE workout_id = (SELECT id FROM workout WHERE workout_id = $1)")
+        .await
+        .expect("Error preparing delete exercises statement");
+
+    client
+        .execute(&delete_exercises_stmt, &[&workout_id.as_str()])
+        .await
+        .expect("Error executing delete exercises query");
+
+    // Видаляємо саме тренування
+    let delete_workout_stmt = client
+        .prepare("DELETE FROM workout WHERE workout_id = $1")
+        .await
+        .expect("Error preparing delete workout statement");
+
+    client
+        .execute(&delete_workout_stmt, &[&workout_id.as_str()])
+        .await
+        .expect("Error executing delete workout query");
+
+    HttpResponse::Ok().json("Workout deleted successfully")
+}
+
 #[post("/register")]
 async fn register_user(pool: web::Data<db::DbPool>, user: web::Json<RegisterUser>) -> impl Responder {
-    let client = pool.get_ref();
+    // let client = pool.get_ref();
+    let client = pool.lock().await;
 
     let stmt = client
         .prepare("SELECT COUNT(*) FROM users WHERE username = $1")
@@ -97,7 +320,8 @@ async fn register_user(pool: web::Data<db::DbPool>, user: web::Json<RegisterUser
 
 #[post("/login")]
 async fn login_user(pool: web::Data<db::DbPool>, user: web::Json<LoginUser>) -> impl Responder {
-    let client = pool.get_ref();
+    // let client = pool.get_ref();
+    let client = pool.lock().await;
 
     let stmt = client.prepare("SELECT id, username, password FROM users WHERE username = $1").await.expect("Error preparing statement");
     let rows = client.query(&stmt, &[&user.username]).await.expect("Error executing query");

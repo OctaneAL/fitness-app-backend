@@ -20,7 +20,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(
                 Cors::default()
                 .allowed_origin("http://localhost:3000")
-                .allowed_methods(vec!["GET", "POST"])
+                .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                 .allowed_header(header::CONTENT_TYPE)
                 .supports_credentials()
@@ -31,6 +31,10 @@ async fn main() -> std::io::Result<()> {
             .service(handlers::login_user)
             .service(handlers::protected_endpoint)
             .service(handlers::add_workout)
+            .service(handlers::update_workout)
+            .service(handlers::delete_workout)
+            .service(handlers::get_workouts)
+            .service(handlers::get_exercise_catalog)
     })
     .bind(("0.0.0.0", 8000))?
     .run()

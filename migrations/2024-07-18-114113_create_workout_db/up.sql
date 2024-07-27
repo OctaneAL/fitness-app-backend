@@ -2,7 +2,7 @@ CREATE TABLE workout (
   id SERIAL PRIMARY KEY,
   workout_id VARCHAR UNIQUE,
   name VARCHAR,
-  date DATE
+  date TEXT
 );
 
 CREATE TABLE exercise_catalog (
