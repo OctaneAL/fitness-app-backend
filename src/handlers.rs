@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, post, get, del
 
 use crate::db;
 use crate::auth;
-use crate::models::{RegisterUser, LoginUser, Workout, Exercise, ExerciseDetail, ExerciseCatalogItem};
+use crate::models::{ AddWorkout, RegisterUser, LoginUser, Workout, Exercise, ExerciseDetail, ExerciseCatalogItem, LoginResponse};
 
 // pub fn config(cfg: &mut web::ServiceConfig, pool: &db::DbPool) {
 //     cfg.service(
@@ -21,6 +21,73 @@ async fn get_workouts(pool: web::Data<db::DbPool>) -> impl Responder {
     let workouts_query = "SELECT id, workout_id, name, date, planned_volume_kg, duration_minutes FROM workout ORDER by date;";
     let workouts = client
         .query(workouts_query, &[])
+        .await
+        .expect("Error executing workouts query");
+
+    let mut workout_list = Vec::new();
+
+    for row in workouts {
+        let workout_id: i32 = row.get(0);
+        let mut workout = Workout {
+            id: row.get::<_, String>(1),
+            name: row.get::<_, String>(2),
+            date: row.get::<_, String>(3),
+            planned_volume: row.get::<_, i32>(4),
+            duration: row.get::<_, i32>(5).to_string(),
+            exercises: Vec::new(),
+        };
+
+        // Запит для отримання вправ для кожного тренування
+        let exercises_query = "SELECT id, exercise_catalog_id FROM workout_exercise WHERE workout_id = $1";
+        let exercises = client
+            .query(exercises_query, &[&workout_id])
+            .await
+            .expect("Error executing exercises query");
+
+        for exercise_row in exercises {
+            let exercise_id: i32 = exercise_row.get(0);
+            let mut exercise = Exercise {
+                exercise_catalog_id: exercise_row.get(1),
+                details: Vec::new(),
+            };
+
+            // Запит для отримання деталей вправ для кожної вправи
+            let details_query = "SELECT repeats, weight FROM exercise_set WHERE workout_exercise_id = $1";
+            let details = client
+                .query(details_query, &[&exercise_id])
+                .await
+                .expect("Error executing details query");
+
+            for detail_row in details {
+                let detail = ExerciseDetail {
+                    repeats: detail_row.get::<_, i32>(0).to_string(),
+                    weight: detail_row.get::<_, i32>(1).to_string(),
+                };
+                exercise.details.push(detail);
+            }
+
+            workout.exercises.push(exercise);
+        }
+
+        workout_list.push(workout);
+    }
+
+    HttpResponse::Ok().json(workout_list)
+}
+
+#[get("/workouts/{user_id}")]
+async fn get_user_workouts(
+    pool: web::Data<db::DbPool>,
+    user_id: web::Path<String>,
+) -> impl Responder {
+    let client = pool.lock().await;
+
+    let user_id: i32 = user_id.parse::<i32>().unwrap();
+
+    // Запит для отримання всіх тренувань
+    let workouts_query = "SELECT id, workout_id, name, date, planned_volume_kg, duration_minutes FROM workout WHERE user_id = $1 ORDER by date;";
+    let workouts = client
+        .query(workouts_query, &[&user_id])
         .await
         .expect("Error executing workouts query");
 
@@ -100,10 +167,12 @@ async fn get_exercise_catalog(pool: web::Data<db::DbPool>) -> impl Responder {
 async fn add_workout(
     pool: web::Data<db::DbPool>,
     workout_id: web::Path<String>, 
-    workout: web::Json<Workout>
+    add_workout: web::Json<AddWorkout>,
 ) -> impl Responder {
     // let client = pool.get_ref();
     let mut client = pool.lock().await;
+    let workout = &add_workout.workout;
+    let user_id = &add_workout.user_id;
     let duration: i32 = workout.duration.parse::<i32>().unwrap();
 
     let transaction = client
@@ -113,11 +182,11 @@ async fn add_workout(
 
     // Add workout
     let workout_stmt = transaction
-        .prepare("INSERT INTO workout (workout_id, name, date, planned_volume_kg, duration_minutes) VALUES ($1, $2, $3, $4, $5) RETURNING id")
+        .prepare("INSERT INTO workout (workout_id, name, date, planned_volume_kg, duration_minutes, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id")
         .await
         .expect("Error preparing workout statement");
     let workout_record_id: i32 = transaction
-        .query_one(&workout_stmt, &[&workout_id.as_str(), &workout.name, &workout.date, &workout.planned_volume, &duration])
+        .query_one(&workout_stmt, &[&workout_id.as_str(), &workout.name, &workout.date, &workout.planned_volume, &duration, &user_id])
         .await
         .expect("Error executing workout query")
         .get(0);
@@ -155,7 +224,7 @@ async fn add_workout(
         .await
         .expect("Failed to commit transaction");
 
-    HttpResponse::Ok().json(workout.into_inner())
+    HttpResponse::Ok().json(workout)
 }
 
 #[put("/workout/{workout_id}")]
@@ -332,10 +401,14 @@ async fn login_user(pool: web::Data<db::DbPool>, user: web::Json<LoginUser>) -> 
 
     let row = &rows[0];
     let db_password: &str = row.get("password");
+    let user_id: i32 = row.get("id");
 
     if auth::verify_password(&db_password, &user.password) {
         let token = auth::create_jwt(&user.username);
-        HttpResponse::Ok().json(token)
+        
+        let response = LoginResponse { token, user_id };
+
+        HttpResponse::Ok().json(response)
     } else {
         HttpResponse::Unauthorized().body("Invalid username or password")
     }

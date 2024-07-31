@@ -16,6 +16,12 @@ pub struct ExerciseCatalogItem {
     pub name: String,
 }
 
+#[derive(Serialize)]
+pub struct LoginResponse {
+    pub token: String,
+    pub user_id: i32,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ExerciseDetail {
     pub repeats: String,
@@ -36,6 +42,12 @@ pub struct Workout {
     pub planned_volume: i32,
     pub duration: String,
     pub exercises: Vec<Exercise>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AddWorkout {
+    pub workout: Workout,
+    pub user_id: i32,
 }
 
 // #[derive(Queryable, Serialize, Deserialize)]

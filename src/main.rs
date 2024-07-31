@@ -35,6 +35,7 @@ async fn main() -> std::io::Result<()> {
             .service(handlers::delete_workout)
             .service(handlers::get_workouts)
             .service(handlers::get_exercise_catalog)
+            .service(handlers::get_user_workouts)
     })
     .bind(("0.0.0.0", 8000))?
     .run()
