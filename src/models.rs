@@ -11,6 +11,12 @@ pub struct User {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct Distribution {
+    pub name: String,
+    pub value: i32,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ExerciseCatalogItem {
     pub id: i32,
     pub name: String,

@@ -19,7 +19,8 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(
                 Cors::default()
-                .allowed_origin("http://localhost:3000")
+                // .allowed_origin("http://localhost:3000")
+                .allow_any_origin()
                 .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                 .allowed_header(header::CONTENT_TYPE)
@@ -36,6 +37,13 @@ async fn main() -> std::io::Result<()> {
             .service(handlers::get_workouts)
             .service(handlers::get_exercise_catalog)
             .service(handlers::get_user_workouts)
+            .service(handlers::get_user_total_workouts)
+            .service(handlers::get_user_total_duration)
+            .service(handlers::get_user_total_sets)
+            .service(handlers::get_user_total_weight)
+            .service(handlers::get_user_difficulty_distribution)
+            .service(handlers::get_user_muscle_group_exercise_distribution)
+            .service(handlers::get_user_muscle_group_weight_distribution)
     })
     .bind(("0.0.0.0", 8000))?
     .run()
