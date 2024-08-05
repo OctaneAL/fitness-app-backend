@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 use diesel::prelude::*;
+use std::collections::HashMap;
 
 use crate::schema::users;
+
+pub type IdToName = HashMap<i32, String>;
+pub type StringCounter = HashMap<String, i32>;
 
 #[derive(Queryable, Serialize, Deserialize)]
 pub struct User {

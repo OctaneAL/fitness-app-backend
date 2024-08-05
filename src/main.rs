@@ -9,6 +9,10 @@ mod auth;
 mod handlers;
 mod db;
 
+mod stats_handlers;
+mod workout_handlers;
+mod auth_handlers;
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -28,22 +32,11 @@ async fn main() -> std::io::Result<()> {
                 .max_age(3600)
             )
             .app_data(web::Data::new(client.clone()))
-            .service(handlers::register_user)
-            .service(handlers::login_user)
             .service(handlers::protected_endpoint)
-            .service(handlers::add_workout)
-            .service(handlers::update_workout)
-            .service(handlers::delete_workout)
-            .service(handlers::get_workouts)
             .service(handlers::get_exercise_catalog)
-            .service(handlers::get_user_workouts)
-            .service(handlers::get_user_total_workouts)
-            .service(handlers::get_user_total_duration)
-            .service(handlers::get_user_total_sets)
-            .service(handlers::get_user_total_weight)
-            .service(handlers::get_user_difficulty_distribution)
-            .service(handlers::get_user_muscle_group_exercise_distribution)
-            .service(handlers::get_user_muscle_group_weight_distribution)
+            .configure(stats_handlers::init_routes)
+            .configure(workout_handlers::init_routes)
+            .configure(auth_handlers::init_routes)
     })
     .bind(("0.0.0.0", 8000))?
     .run()
