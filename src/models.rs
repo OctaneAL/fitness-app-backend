@@ -21,7 +21,7 @@ pub struct Distribution {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ExerciseCatalogItem {
+pub struct CatalogItem {
     pub id: i32,
     pub name: String,
 }
