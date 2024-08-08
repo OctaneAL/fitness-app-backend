@@ -1,8 +1,8 @@
-use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, get};
+use actix_web::{web, HttpResponse, HttpRequest, Responder, Error, get, post, delete};
 
 use crate::db;
 use crate::auth;
-use crate::models::CatalogItem;
+use crate::models::{CatalogItem, FavoriteRequest};
 use std::collections::HashMap;
 
 // pub fn config(cfg: &mut web::ServiceConfig, pool: &db::DbPool) {
@@ -145,7 +145,7 @@ async fn filter_exercises(
         exercise.insert("short_demonstration_link".to_string(), row.get::<usize, Option<String>>(2).unwrap_or_default());
         exercise.insert("in_depth_demonstration_link".to_string(), row.get::<usize, Option<String>>(3).unwrap_or_default());
         exercise.insert("difficulty_id".to_string(), row.get::<usize, Option<i32>>(4).unwrap_or_default().to_string());
-        // exercise.insert("target_muscle_group_id".to_string(), row.get::<usize, Option<i32>>(5).unwrap_or_default().to_string());
+        exercise.insert("target_muscle_group_id".to_string(), row.get::<usize, Option<i32>>(5).unwrap_or_default().to_string());
         // exercise.insert("prime_mover_muscle_id".to_string(), row.get::<usize, Option<i32>>(6).unwrap_or_default().to_string());
         // exercise.insert("secondary_mover_muscle_id".to_string(), row.get::<usize, Option<i32>>(7).unwrap_or_default().to_string());
         // exercise.insert("tertiary_mover_muscle_id".to_string(), row.get::<usize, Option<i32>>(8).unwrap_or_default().to_string());
@@ -313,19 +313,81 @@ async fn get_muscle_group_id(
     }
 }
 
+#[get("/favorite_exercises/{user_id}")]
+async fn get_user_favorite_exercises(
+    pool: web::Data<db::DbPool>,
+    user_id: web::Path<String>,
+) -> impl Responder {
+    let client = pool.lock().await;
+
+    let user_id: i32 = user_id.parse::<i32>().unwrap();
+
+    let favorite_exercises_query = "SELECT exercise_catalog_id FROM favorite_exercise WHERE user_id = $1";
+
+    let favorite_exercises_data = client
+        .query(favorite_exercises_query, &[&user_id])
+        .await
+        .expect("Error executing favorite exercises query");
+
+    let mut favorite_exercises: Vec::<i32> = Vec::new();
+
+    for row in favorite_exercises_data {
+        let exercise_catalog_id: i32 = row.get(0);
+
+        favorite_exercises.push(exercise_catalog_id);
+    }
+
+    HttpResponse::Ok().json(favorite_exercises)
+}
+
+#[post("/favorite_exercises/{user_id}")]
+async fn add_user_favorite_exercises(
+    pool: web::Data<db::DbPool>,
+    user_id: web::Path<String>,
+    body: web::Json<FavoriteRequest>,
+) -> impl Responder {
+    let client = pool.lock().await;
+
+    let user_id: i32 = user_id.parse::<i32>().unwrap();
+
+    let stmt = client.prepare("INSERT INTO favorite_exercise (exercise_catalog_id, user_id) VALUES ($1, $2);").await.expect("Error preparing statement");
+    client.query(&stmt, &[&body.exercise_catalog_id, &user_id]).await.expect("Error executing query");
+
+    HttpResponse::Ok().json("Succesfully added.".to_string())
+}
+
+#[delete("/favorite_exercises/{user_id}")]
+async fn delete_user_favorite_exercises(
+    pool: web::Data<db::DbPool>,
+    user_id: web::Path<String>,
+    body: web::Json<FavoriteRequest>,
+) -> impl Responder {
+    let client = pool.lock().await;
+
+    let user_id: i32 = user_id.parse::<i32>().unwrap();
+
+    let stmt = client.prepare("DELETE FROM favorite_exercise WHERE exercise_catalog_id = $1 AND user_id = $2;").await.expect("Error preparing statement");
+    client.query(&stmt, &[&body.exercise_catalog_id, &user_id]).await.expect("Error executing query");
+
+    HttpResponse::Ok().json("Succesfully deleted.".to_string())
+}
+
 #[get("/muscle_groups")]
 async fn get_muscle_groups(pool: web::Data<db::DbPool>) -> impl Responder {
     let client = pool.lock().await;
     
-    let muscle_groups_query = "SELECT name FROM muscle_group ORDER by name;";
+    let muscle_groups_query = "SELECT id, name FROM muscle_group ORDER by name;";
     let muscle_groups = client
         .query(muscle_groups_query, &[])
         .await
         .expect("Error executing muscle groups query");
 
-    let muscle_groups: Vec<String> = muscle_groups
+    let muscle_groups: Vec<CatalogItem> = muscle_groups
         .iter()
-        .map(|row| row.get(0))
+        .map(|row| CatalogItem {
+            id: row.get("id"),
+            name: row.get("name"),
+        })
         .collect();
 
     HttpResponse::Ok().json(muscle_groups)

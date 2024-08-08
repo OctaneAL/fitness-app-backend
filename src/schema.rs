@@ -50,6 +50,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    favorite_exercise (id) {
+        id -> Int4,
+        user_id -> Int4,
+        exercise_catalog_id -> Int4,
+    }
+}
+
+diesel::table! {
     muscle (id) {
         id -> Int4,
         name -> Varchar,
@@ -103,6 +111,8 @@ diesel::joinable!(exercise_catalog -> body_region (body_region_id));
 diesel::joinable!(exercise_catalog -> difficulty (difficulty_id));
 diesel::joinable!(exercise_catalog -> muscle_group (target_muscle_group_id));
 diesel::joinable!(exercise_set -> workout_exercise (workout_exercise_id));
+diesel::joinable!(favorite_exercise -> exercise_catalog (exercise_catalog_id));
+diesel::joinable!(favorite_exercise -> users (user_id));
 diesel::joinable!(workout -> users (user_id));
 diesel::joinable!(workout_exercise -> exercise_catalog (exercise_catalog_id));
 diesel::joinable!(workout_exercise -> workout (workout_id));
@@ -113,6 +123,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     equipment,
     exercise_catalog,
     exercise_set,
+    favorite_exercise,
     muscle,
     muscle_group,
     user,
