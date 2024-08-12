@@ -11,6 +11,7 @@ diesel::table! {
     difficulty (id) {
         id -> Int4,
         name -> Varchar,
+        int_difficulty -> Nullable<Int4>,
     }
 }
 

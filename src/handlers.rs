@@ -226,7 +226,7 @@ async fn get_difficulties(
 ) -> impl Responder {
     let client = pool.lock().await;
     
-    let difficulties_query = "SELECT id, name FROM difficulty ORDER by name;";
+    let difficulties_query = "SELECT id, name FROM difficulty ORDER by int_difficulty;";
     let difficulties = client
         .query(difficulties_query, &[])
         .await
